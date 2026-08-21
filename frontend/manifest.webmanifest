@@ -1,0 +1,13 @@
+{
+  "name": "Solar Plant Manager",
+  "short_name": "SolarPM",
+  "description": "Solar plant field operations: attendance, tasks, meter readings, maps",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f5f4",
+  "theme_color": "#0b6e4f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
