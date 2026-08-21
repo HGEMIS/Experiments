@@ -142,7 +142,8 @@ async function init() {
   if (State.needsInit && !State.token) { location.hash = '#/createAdmin'; }
   if (State.token && !State.user) { clearSession(); location.hash = '#/login'; }
   route();
-  if (State.token) startLive();
+  if (State.token) { startLive(); flushPendingPhotos(); }
+  window.addEventListener('online', () => flushPendingPhotos());
 }
 
 /* ============================================================
@@ -199,6 +200,17 @@ function blockPopup(name, st) {
   const c = st.cleaned ? (new Date(st.cleaned).toLocaleDateString() + ' · ' + daysSince(st.cleaned) + 'd ago') : 'never';
   const w = st.deweeded ? (new Date(st.deweeded).toLocaleDateString() + ' · ' + daysSince(st.deweeded) + 'd ago') : 'never';
   return '<b>' + UI.esc(name) + '</b><br>Last cleaned: ' + UI.esc(c) + '<br>Last deweeded: ' + UI.esc(w);
+}
+
+function loadReadingsDraft() {
+  try { return JSON.parse(localStorage.getItem('spm_readings_draft') || 'null'); } catch (e) { return null; }
+}
+function saveReadingsDraft(d) {
+  try { localStorage.setItem('spm_readings_draft', JSON.stringify(d)); }
+  catch (e) {
+    // quota exceeded (e.g. many photos) — keep fields, drop photos
+    try { localStorage.setItem('spm_readings_draft', JSON.stringify({ meter: d.meter, inverter: d.inverter })); } catch (e2) {}
+  }
 }
 
 function openTaskModal(labour, existing) {
@@ -536,10 +548,8 @@ const Views = {
         const phase = b.dataset.phase;
         try {
           const cap = await Media.capture({ label: 'TASK ' + t.Title + ' / ' + phase.toUpperCase() });
-          UI.toast('Uploading...');
-          const up = await API.call('photo.upload', { base64: cap.base64, lat: cap.lat, lng: cap.lng, time: cap.time, plantId: currentPlantId(), filename: 'task_' + id + '_' + phase + '_' + Date.now() + '.jpg' }, { queue: true });
-          await API.call('task.photo.add', { taskId: id, phase, fileId: up.fileId, url: up.url, lat: cap.lat, lng: cap.lng, time: cap.time, hash: up.hash }, { queue: true });
-          UI.toast('Photo added', 'ok'); Views.taskDetail.mount();
+          UI.toast('Saving photo to Drive…');
+          await queuePhoto({ kind: 'task', taskId: id, phase, base64: cap.base64, lat: cap.lat, lng: cap.lng, time: cap.time, plantId: currentPlantId(), filename: 'task_' + id + '_' + phase + '_' + Date.now() + '.jpg' });
         } catch (e) { UI.toast('Camera failed: ' + e.message, 'err'); }
       });
     }
@@ -567,29 +577,45 @@ const Views = {
         <button class="btn" id="i_save">Save inverter reading</button>
       </div>`; },
     mount() {
-      const mDraft = [], iDraft = [];
-      const renderThumbs = (el, arr) => { el.innerHTML = arr.map((d) => `<img src="${d.dataUrl}">`).join(''); };
-      document.getElementById('m_cap').onclick = async () => {
-        try { const c = await Media.capture({ label: 'METER' }); mDraft.push(c); renderThumbs(document.getElementById('m_photos'), mDraft); }
+      const draft = loadReadingsDraft() || { meter: {}, inverter: {}, mPhotos: [], iPhotos: [] };
+      const $ = (id) => document.getElementById(id);
+      if (draft.meter.date) $('m_date').value = draft.meter.date;
+      if (draft.meter.imp != null) $('m_imp').value = draft.meter.imp;
+      if (draft.meter.exp != null) $('m_exp').value = draft.meter.exp;
+      if (draft.meter.time) $('m_time').value = draft.meter.time;
+      if (draft.inverter.id) $('i_id').value = draft.inverter.id;
+      if (draft.inverter.gen != null) $('i_gen').value = draft.inverter.gen;
+      if (draft.inverter.time) $('i_time').value = draft.inverter.time;
+      const renderThumbs = (el, arr) => { el.innerHTML = (arr || []).map((d) => `<img src="${d.dataUrl}">`).join(''); };
+      renderThumbs($('m_photos'), draft.mPhotos);
+      renderThumbs($('i_photos'), draft.iPhotos);
+      const persist = () => {
+        draft.meter = { date: $('m_date').value, imp: $('m_imp').value, exp: $('m_exp').value, time: $('m_time').value };
+        draft.inverter = { id: $('i_id').value, gen: $('i_gen').value, time: $('i_time').value };
+        saveReadingsDraft(draft);
+      };
+      ['m_date', 'm_imp', 'm_exp', 'm_time', 'i_id', 'i_gen', 'i_time'].forEach((id) => $(id).addEventListener('input', persist));
+      $('m_cap').onclick = async () => {
+        try { const c = await Media.capture({ label: 'METER' }); draft.mPhotos.push(c); persist(); renderThumbs($('m_photos'), draft.mPhotos); }
         catch (e) { UI.toast(e.message, 'err'); }
       };
-      document.getElementById('i_cap').onclick = async () => {
-        try { const c = await Media.capture({ label: 'INVERTER' }); iDraft.push(c); renderThumbs(document.getElementById('i_photos'), iDraft); }
+      $('i_cap').onclick = async () => {
+        try { const c = await Media.capture({ label: 'INVERTER' }); draft.iPhotos.push(c); persist(); renderThumbs($('i_photos'), draft.iPhotos); }
         catch (e) { UI.toast(e.message, 'err'); }
       };
-      document.getElementById('m_save').onclick = async () => {
+      $('m_save').onclick = async () => {
         const ids = [];
-        for (const c of mDraft) { const up = await API.call('photo.upload', { base64: c.base64, lat: c.lat, lng: c.lng, time: c.time, plantId: currentPlantId(), filename: 'meter_' + Date.now() + '.jpg' }, { queue: true }); ids.push(up.url); }
+        for (const c of (draft.mPhotos || [])) { const up = await API.call('photo.upload', { base64: c.base64, lat: c.lat, lng: c.lng, time: c.time, plantId: currentPlantId(), filename: 'meter_' + Date.now() + '.jpg' }, { queue: true }); if (up.url) ids.push(up.url); }
         let geo = { lat: '', lng: '' }; try { const g = await Media.getGeo(); geo = g; } catch (e) {}
-        await API.call('meter.add', { date: document.getElementById('m_date').value, importKwh: document.getElementById('m_imp').value, exportKwh: document.getElementById('m_exp').value, readingTime: document.getElementById('m_time').value, photoURLs: ids.join('|'), lat: geo.lat, lng: geo.lng, plantId: currentPlantId() }, { queue: true });
-        UI.toast('Meter reading saved', 'ok'); navigate('dashboard');
+        await API.call('meter.add', { date: $('m_date').value, importKwh: $('m_imp').value, exportKwh: $('m_exp').value, readingTime: $('m_time').value, photoURLs: ids.join('|'), lat: geo.lat, lng: geo.lng, plantId: currentPlantId() }, { queue: true });
+        localStorage.removeItem('spm_readings_draft'); UI.toast('Meter reading saved', 'ok'); navigate('dashboard');
       };
-      document.getElementById('i_save').onclick = async () => {
+      $('i_save').onclick = async () => {
         let url = '';
-        if (iDraft[0]) { const up = await API.call('photo.upload', { base64: iDraft[0].base64, lat: iDraft[0].lat, lng: iDraft[0].lng, time: iDraft[0].time, plantId: currentPlantId(), filename: 'inv_' + Date.now() + '.jpg' }, { queue: true }); url = up.url; }
+        if (draft.iPhotos && draft.iPhotos[0]) { const up = await API.call('photo.upload', { base64: draft.iPhotos[0].base64, lat: draft.iPhotos[0].lat, lng: draft.iPhotos[0].lng, time: draft.iPhotos[0].time, plantId: currentPlantId(), filename: 'inv_' + Date.now() + '.jpg' }, { queue: true }); if (up.url) url = up.url; }
         let geo = { lat: '', lng: '' }; try { const g = await Media.getGeo(); geo = g; } catch (e) {}
-        await API.call('inverter.add', { inverterId: document.getElementById('i_id').value, generationKwh: document.getElementById('i_gen').value, readingTime: document.getElementById('i_time').value, photoURL: url, lat: geo.lat, lng: geo.lng, plantId: currentPlantId() }, { queue: true });
-        UI.toast('Inverter reading saved', 'ok'); navigate('dashboard');
+        await API.call('inverter.add', { inverterId: $('i_id').value, generationKwh: $('i_gen').value, readingTime: $('i_time').value, photoURL: url, lat: geo.lat, lng: geo.lng, plantId: currentPlantId() }, { queue: true });
+        localStorage.removeItem('spm_readings_draft'); UI.toast('Inverter reading saved', 'ok'); navigate('dashboard');
       };
     }
   },

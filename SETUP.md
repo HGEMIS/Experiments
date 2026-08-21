@@ -104,7 +104,10 @@ Blocks are saved as GeoJSON in the plant record, so they persist and line up on 
 
 (You can still import a coordinate-accurate GeoJSON via Settings → Plants if your CAD/survey export has real lat/lng; the rename tool there also lets you fix a mislabeled block such as A8 → A7.)
 
-## Feature notes
+## Photos never get lost (durable upload)
+Each photo is written to the device (IndexedDB) **the moment it's captured**, then uploaded to Drive immediately. If the engineer refreshes the browser, the phone clears RAM, or the upload is interrupted / offline, the photo stays queued and **auto-syncs the next time the app is open and online** — progress on a task (before → during → after) is never lost. Already-uploaded photos are also recorded in the Sheet, so reopening a task shows everything captured so far. The readings form (meter/inverter) is likewise auto-saved locally, so typed values survive a refresh.
+
+Tip: for longest uptime on a phone, **Add the app to the Home Screen** (browser menu → "Add to Home Screen") and keep the tab open between captures. Captures happen while the app is foreground; uploads are immediate, and anything pending recovers automatically.
 - **Task work types.** When creating/editing a labour task you pick the work: **Panel Cleaning**, **Deweeding**, or **Other** (with a free-text "specify" field). You also choose **who is doing it** (multiple labours can be assigned), the **shift** (Morning/Evening) and **duration in hours**. The shift auto-defaults to **Evening for Panel Cleaning** and **Morning for Deweeding**, and duration defaults to **3 hours** — matching your typical operation (deweed in the morning, clean panels in the evening, ~3 h shifts). Change any of these per task.
 - **Fixing block names (e.g. A7 shown as A8).** After importing the plant layout GeoJSON (Settings → Plants → import), open **Settings → Plants → "Rename blocks"** for that plant. It lists every block from the layout with an editable name field — rename the mislabeled block (A8 → A7), Save, and the corrected names are used on the map and in task/block references. You can also re-import an updated GeoJSON anytime.
 

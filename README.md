@@ -13,7 +13,7 @@ A free, smartphone-first management app for solar plants, built on **Google Shee
 - **Site map**: block/panel layout overlay + free **satellite view** (Leaflet + Esri imagery), no Google Maps billing.
 - **Tamper-resistant photos**: coordinates + timestamp burned into the image and a SHA-256 hash stored in the Sheet.
 - **Full customisation**: app name, logo, check-in interval, required photo counts, drive folder — all editable in-app (Management Settings).
-- **Offline support**: UI opens offline; submissions queue and sync on reconnect.
+- **No lost progress**: every photo is written to the device the instant it's captured and uploaded to Drive immediately; if the browser is refreshed or the phone clears RAM, pending photos auto-sync on next open/online. Task before/during/after photos persist on the server as they're taken.
 - **Multi-plant ready**: plants are a column in the data; start with one, add more later.
 - **Manager view**: both the Sheets (raw data) and an in-app dashboard (maps, photos, live locations, approvals).
 
