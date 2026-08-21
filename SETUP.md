@@ -90,3 +90,8 @@ backend/   Apps Script backend (paste into the script project)
 frontend/  PWA (host on GitHub Pages / Netlify)
 SETUP.md   this guide
 ```
+
+## Feature notes
+- **Task work types.** When creating/editing a labour task you pick the work: **Panel Cleaning**, **Deweeding**, or **Other** (with a free-text "specify" field). You also choose **who is doing it** (multiple labours can be assigned), the **shift** (Morning/Evening) and **duration in hours**. The shift auto-defaults to **Evening for Panel Cleaning** and **Morning for Deweeding**, and duration defaults to **3 hours** — matching your typical operation (deweed in the morning, clean panels in the evening, ~3 h shifts). Change any of these per task.
+- **Fixing block names (e.g. A7 shown as A8).** After importing the plant layout GeoJSON (Settings → Plants → import), open **Settings → Plants → "Rename blocks"** for that plant. It lists every block from the layout with an editable name field — rename the mislabeled block (A8 → A7), Save, and the corrected names are used on the map and in task/block references. You can also re-import an updated GeoJSON anytime.
+

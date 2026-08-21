@@ -285,19 +285,42 @@ function actionLocationList(body, s) {
 /* labour tasks */
 function actionTasksList(body, s) {
   var rows = readRows('LabourTasks');
-  if (s.role === 'labour') rows = rows.filter(function (r) { return r.AssignedTo === s.userId; });
+  if (s.role === 'labour') rows = rows.filter(function (r) { return String(r.AssignedTo || '').split(',').indexOf(s.userId) >= 0; });
   else if (s.role === 'engineer') rows = rows.filter(function (r) { return r.PlantID === s.plantId; });
   return { ok: true, tasks: rows };
 }
 function actionTaskAdd(body, s) {
-  var id = newId('T');
-  appendRow('LabourTasks', [id, body.plantId || s.plantId || '', body.title || 'Untitled', body.description || '', body.assignedTo || '', body.assignedName || '', body.status || 'todo', body.blockId || '', body.dueDate || '', new Date().toISOString(), s.userId]);
-  return { ok: true, id: id };
+  var assignedTo = Array.isArray(body.assignedTo) ? body.assignedTo.join(',') : (body.assignedTo || '');
+  var assignedName = Array.isArray(body.assignedName) ? body.assignedName.join(',') : (body.assignedName || '');
+  var obj = {
+    TaskID: newId('T'),
+    PlantID: body.plantId || s.plantId || '',
+    Title: body.title || 'Untitled',
+    Description: body.description || '',
+    WorkType: body.workType || '',
+    OtherDetail: body.otherDetail || '',
+    AssignedTo: assignedTo,
+    AssignedName: assignedName,
+    Shift: body.shift || '',
+    DurationHrs: body.durationHrs || '',
+    Status: body.status || 'todo',
+    BlockID: body.blockId || '',
+    DueDate: body.dueDate || '',
+    CreatedAt: new Date().toISOString(),
+    CreatedBy: s.userId
+  };
+  insertRow('LabourTasks', obj);
+  return { ok: true, id: obj.TaskID };
 }
 function actionTaskUpdate(body, s) {
   var upd = {};
-  ['Title', 'Description', 'AssignedTo', 'AssignedName', 'Status', 'BlockID', 'DueDate'].forEach(function (k) {
-    if (body[k.charAt(0).toLowerCase() + k.slice(1)] !== undefined) upd[k] = body[k.charAt(0).toLowerCase() + k.slice(1)];
+  ['Title', 'Description', 'WorkType', 'OtherDetail', 'Shift', 'DurationHrs', 'Status', 'BlockID', 'DueDate'].forEach(function (k) {
+    var ck = k.charAt(0).toLowerCase() + k.slice(1);
+    if (body[ck] !== undefined) upd[k] = body[ck];
+  });
+  ['AssignedTo', 'AssignedName'].forEach(function (k) {
+    var ck = k.charAt(0).toLowerCase() + k.slice(1);
+    if (body[ck] !== undefined) upd[k] = Array.isArray(body[ck]) ? body[ck].join(',') : body[ck];
   });
   updateRow('LabourTasks', 'TaskID', body.taskId, upd);
   return { ok: true };

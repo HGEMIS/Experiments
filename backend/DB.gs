@@ -21,7 +21,7 @@ var SCHEMA = {
   Plants:          ['PlantID', 'Name', 'Lat', 'Lng', 'LayoutGeoJSON', 'CreatedAt'],
   Attendance:      ['ID', 'PlantID', 'UserID', 'UserName', 'Type', 'Date', 'CheckInTime', 'CheckInLat', 'CheckInLng', 'CheckOutTime', 'CheckOutLat', 'CheckOutLng', 'PhotoURL', 'Status', 'CreatedAt'],
   CheckIns:        ['ID', 'PlantID', 'UserID', 'UserName', 'Time', 'Lat', 'Lng', 'Accuracy'],
-  LabourTasks:     ['TaskID', 'PlantID', 'Title', 'Description', 'AssignedTo', 'AssignedName', 'Status', 'BlockID', 'DueDate', 'CreatedAt', 'CreatedBy'],
+  LabourTasks:     ['TaskID', 'PlantID', 'Title', 'Description', 'WorkType', 'OtherDetail', 'AssignedTo', 'AssignedName', 'Shift', 'DurationHrs', 'Status', 'BlockID', 'DueDate', 'CreatedAt', 'CreatedBy'],
   TaskPhotos:      ['ID', 'TaskID', 'Phase', 'FileID', 'URL', 'Lat', 'Lng', 'Time', 'Hash', 'UploadedBy'],
   MeterReadings:   ['ID', 'PlantID', 'Date', 'ImportKwh', 'ExportKwh', 'ReadingTime', 'PhotoURLs', 'Lat', 'Lng', 'EnteredBy', 'CreatedAt'],
   InverterReadings:['ID', 'PlantID', 'Date', 'InverterID', 'GenerationKwh', 'ReadingTime', 'PhotoURL', 'Lat', 'Lng', 'EnteredBy', 'CreatedAt'],
@@ -30,20 +30,30 @@ var SCHEMA = {
   Sessions:        ['Token', 'UserID', 'Role', 'Name', 'PlantID', 'Expires']
 };
 
+// Additive schema sync: never wipes data. Creates the sheet if missing and
+// appends any new columns at the end (old rows simply get empty cells there).
 function ensureSchema() {
   for (var name in SCHEMA) {
     var sh = getSheet(name);
-    var hdr = sh.getRange(1, 1, 1, SCHEMA[name].length).getValues()[0];
-    var need = false;
-    for (var i = 0; i < SCHEMA[name].length; i++) {
-      if (hdr[i] !== SCHEMA[name][i]) { need = true; break; }
-    }
-    if (need) {
-      sh.clear();
-      sh.getRange(1, 1, 1, SCHEMA[name].length).setValues([SCHEMA[name]]);
-    }
+    var lastRow = sh.getLastRow();
+    var hdr = (lastRow && lastRow >= 1) ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
+    SCHEMA[name].forEach(function (col) {
+      if (hdr.indexOf(col) < 0) {
+        hdr.push(col);
+        sh.getRange(1, hdr.length).setValue(col);
+      }
+    });
   }
   seedSettings();
+}
+
+// Insert a row by mapping an object's keys to the sheet's header columns,
+// so column re-ordering never breaks writes.
+function insertRow(name, obj) {
+  var sh = getSheet(name);
+  var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var row = hdr.map(function (col) { return obj[col] !== undefined ? obj[col] : ''; });
+  sh.appendRow(row);
 }
 
 function seedSettings() {

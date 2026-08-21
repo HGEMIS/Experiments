@@ -146,6 +146,94 @@ async function init() {
 }
 
 /* ============================================================
+   Shared helpers (work types, task editor, block rename)
+   ============================================================ */
+function workLabel(w) {
+  return ({ panel_cleaning: 'Panel Cleaning', deweeding: 'Deweeding', other: 'Other' }[w]) || (w || '—');
+}
+
+function openTaskModal(labour, existing) {
+  const t = existing || {};
+  const html = `
+    <label>Work type</label>
+    <select id="t_work">
+      <option value="panel_cleaning" ${t.WorkType === 'panel_cleaning' ? 'selected' : ''}>Panel Cleaning</option>
+      <option value="deweeding" ${t.WorkType === 'deweeding' ? 'selected' : ''}>Deweeding</option>
+      <option value="other" ${t.WorkType === 'other' ? 'selected' : ''}>Other</option>
+    </select>
+    <div id="t_other_wrap" style="${t.WorkType === 'other' ? '' : 'display:none'}">
+      <label>Specify work</label><input id="t_other" value="${UI.esc(t.OtherDetail || '')}" placeholder="e.g. Vegetation clearing"></div>
+    <label>Title</label><input id="t_title" value="${UI.esc(t.Title || '')}" placeholder="e.g. Clean Block A">
+    <label>Description</label><textarea id="t_desc" placeholder="Details">${UI.esc(t.Description || '')}</textarea>
+    <label>Assign labours (who is doing it)</label>
+    <div id="t_assign">${labour.length ? labour.map((u) => `<label class="row" style="gap:8px;margin:4px 0"><input type="checkbox" value="${UI.esc(u.UserID)}" data-name="${UI.esc(u.Name)}" style="width:auto"> ${UI.esc(u.Name)}</label>`).join('') : '<span class="muted small">No labour users yet</span>'}</div>
+    <label>Shift</label>
+    <select id="t_shift"><option value="Morning" ${t.Shift === 'Morning' ? 'selected' : ''}>Morning</option><option value="Evening" ${t.Shift === 'Evening' ? 'selected' : ''}>Evening</option></select>
+    <label>Duration (hours)</label><input id="t_dur" type="number" step="0.5" min="0.5" value="${t.DurationHrs || '3'}">
+    <label>Block ID</label><input id="t_block" value="${UI.esc(t.BlockID || '')}" placeholder="A1">`;
+  UI.modal({
+    title: existing ? 'Edit task' : 'New labour task',
+    html,
+    onOpen: (box) => {
+      const work = box.querySelector('#t_work');
+      const otherWrap = box.querySelector('#t_other_wrap');
+      const sync = () => {
+        otherWrap.style.display = work.value === 'other' ? 'block' : 'none';
+        if (!existing) box.querySelector('#t_shift').value = (work.value === 'panel_cleaning') ? 'Evening' : 'Morning';
+      };
+      work.onchange = sync; sync();
+      if (existing && t.AssignedTo) t.AssignedTo.split(',').forEach((id) => { const c = box.querySelector('#t_assign input[value="' + id + '"]'); if (c) c.checked = true; });
+    },
+    actions: [
+      { label: 'Cancel', cls: 'sec', onClick: (c) => c() },
+      { label: existing ? 'Save' : 'Create', cls: '', onClick: async (c) => {
+        const work = document.getElementById('t_work').value;
+        const other = work === 'other' ? document.getElementById('t_other').value : '';
+        const checks = Array.from(document.querySelectorAll('#t_assign input:checked'));
+        const title = document.getElementById('t_title').value.trim();
+        if (!title) return UI.toast('Title required', 'err');
+        const payload = {
+          workType: work, otherDetail: other, title,
+          description: document.getElementById('t_desc').value,
+          assignedTo: checks.map((x) => x.value),
+          assignedName: checks.map((x) => x.dataset.name),
+          shift: document.getElementById('t_shift').value,
+          durationHrs: document.getElementById('t_dur').value || 3,
+          blockId: document.getElementById('t_block').value,
+          plantId: currentPlantId()
+        };
+        if (existing) { payload.taskId = t.TaskID; await API.call('tasks.update', payload, { queue: true }); }
+        else { await API.call('tasks.add', payload, { queue: true }); }
+        c(); UI.toast(existing ? 'Task updated' : 'Task created', 'ok');
+        if (existing) Views.taskDetail.mount(); else Views.tasks.mount();
+      } }
+    ]
+  });
+}
+
+function openBlocksEditor(plant) {
+  let gj;
+  try { gj = JSON.parse(plant.LayoutGeoJSON); } catch (e) { UI.toast('No valid layout GeoJSON to edit', 'err'); return; }
+  const feats = (gj && gj.type === 'FeatureCollection') ? gj.features : [gj];
+  const html = feats.length ? feats.map((f, i) => {
+    const name = (f.properties && (f.properties.name || f.properties.Name)) || '';
+    return `<div class="row" style="gap:8px;margin:6px 0"><input id="blk_${i}" value="${UI.esc(name)}" placeholder="Block name"><span class="muted small">${UI.esc((f.geometry && f.geometry.type) || 'feature')}</span></div>`;
+  }).join('') : '<div class="empty">No blocks found in layout</div>';
+  UI.modal({
+    title: 'Rename blocks — ' + plant.Name,
+    html: `<p class="muted small">Fix any mislabeled blocks (e.g. rename the block wrongly shown as A8 to A7), then Save.</p>${html}`,
+    actions: [
+      { label: 'Cancel', cls: 'sec', onClick: (c) => c() },
+      { label: 'Save', cls: '', onClick: async (c) => {
+        feats.forEach((f, i) => { const v = document.getElementById('blk_' + i).value; f.properties = f.properties || {}; f.properties.name = v; });
+        await API.call('plants.update', { plantId: plant.PlantID, layout: JSON.stringify(gj) });
+        c(); UI.toast('Blocks updated', 'ok'); Views.settings.mount();
+      } }
+    ]
+  });
+}
+
+/* ============================================================
    Views
    ============================================================ */
 const Views = {
@@ -313,40 +401,30 @@ const Views = {
     async mount() {
       const d = await API.call('tasks.list', { plantId: currentPlantId() });
       const canAdd = hasRole(['engineer', 'manager', 'admin']);
-      const users = hasRole(['engineer', 'manager', 'admin']) ? (await API.call('users.list', {})).users.filter((u) => u.Role === 'labour') : [];
+      const users = canAdd ? (await API.call('users.list', {})).users : [];
+      const labour = users.filter((u) => u.Role === 'labour');
       let html = `<div class="card"><div class="row between"><h3 style="margin:0">Labour tasks</h3>${canAdd ? `<button class="btn sec" id="addBtn" style="width:auto;margin:0">+ New</button>` : ''}</div></div>`;
       if (!d.tasks.length) html += `<div class="empty">No tasks yet.</div>`;
-      html += d.tasks.map((t) => `
-        <div class="card" data-id="${t.TaskID}">
+      html += d.tasks.map((t) => {
+        const names = (t.AssignedName || '').split(',').filter(Boolean).join(', ');
+        return `<div class="card" data-id="${t.TaskID}">
           <div class="row between"><b>${UI.esc(t.Title)}</b><span class="pill ${t.Status}">${t.Status.replace('_', ' ')}</span></div>
-          <div class="muted small">${UI.esc(t.AssignedName || 'Unassigned')}${t.BlockID ? ' · Block ' + UI.esc(t.BlockID) : ''}</div>
-          ${t.Description ? `<p class="small" style="margin:6px 0 0">${UI.esc(t.Description)}</p>` : ''}
+          <div class="row" style="gap:6px;margin:6px 0;flex-wrap:wrap">
+            <span class="pill" style="background:#eafaf1;color:#0b6e4f">${UI.esc(workLabel(t.WorkType))}</span>
+            ${t.Shift ? `<span class="muted small">${UI.esc(t.Shift)}</span>` : ''}
+            ${t.DurationHrs ? `<span class="muted small">· ${UI.esc(t.DurationHrs)}h</span>` : ''}
+          </div>
+          <div class="muted small">${names ? '👷 ' + UI.esc(names) : 'Unassigned'}${t.BlockID ? ' · Block ' + UI.esc(t.BlockID) : ''}</div>
+          ${t.WorkType === 'other' && t.OtherDetail ? `<p class="small" style="margin:4px 0 0">${UI.esc(t.OtherDetail)}</p>` : ''}
+          ${t.Description ? `<p class="small" style="margin:4px 0 0">${UI.esc(t.Description)}</p>` : ''}
           <button class="btn sec openTask" style="margin-top:10px" data-id="${t.TaskID}">Open</button>
-        </div>`).join('');
+        </div>`;
+      }).join('');
       document.getElementById('view').innerHTML = html;
 
       document.querySelectorAll('.openTask').forEach((b) => b.onclick = () => navigate('task/' + b.dataset.id));
       const ab = document.getElementById('addBtn');
-      if (ab) ab.onclick = () => {
-        UI.modal({
-          title: 'New labour task',
-          html: `<label>Title</label><input id="t_title" placeholder="e.g. Clean panels Block A">
-            <label>Description</label><textarea id="t_desc" placeholder="Details"></textarea>
-            <label>Assign to</label><select id="t_user"><option value="">Unassigned</option>${users.map((u) => `<option value="${u.UserID}">${UI.esc(u.Name)}</option>`).join('')}</select>
-            <label>Block ID</label><input id="t_block" placeholder="A1">`,
-          actions: [
-            { label: 'Cancel', cls: 'sec', onClick: (c) => c() },
-            { label: 'Create', cls: '', onClick: async (c) => {
-                const title = document.getElementById('t_title').value.trim();
-                if (!title) return UI.toast('Title required', 'err');
-                const uid = document.getElementById('t_user').value;
-                const uname = users.find((u) => u.UserID === uid);
-                await API.call('tasks.add', { title, description: document.getElementById('t_desc').value, assignedTo: uid, assignedName: uname ? uname.Name : '', blockId: document.getElementById('t_block').value, plantId: currentPlantId() }, { queue: true });
-                c(); UI.toast('Task created', 'ok'); Views.tasks.mount();
-              } }
-          ]
-        });
-      };
+      if (ab) ab.onclick = () => openTaskModal(labour, null);
     }
   },
 
@@ -364,6 +442,9 @@ const Views = {
       const ph = photos.photos || [];
       const byPhase = (p) => ph.filter((x) => x.Phase === p);
       const canEdit = hasRole(['engineer', 'labour', 'manager', 'admin']);
+      const canMeta = hasRole(['engineer', 'manager', 'admin']);
+      const users = canMeta ? (await API.call('users.list', {})).users : [];
+      const labour = users.filter((u) => u.Role === 'labour');
       const phaseHtml = (p) => {
         const have = byPhase(p);
         const need = counts[p] || 0;
@@ -373,14 +454,19 @@ const Views = {
           ${canEdit ? `<button class="photo-btn addPhoto" data-phase="${p}">+ ${p} photo</button>` : ''}
         </div>`;
       };
+      const names = (t.AssignedName || '').split(',').filter(Boolean).join(', ');
       const html = `
         <div class="card">
           <div class="row between"><h3 style="margin:0">${UI.esc(t.Title)}</h3>
           <select id="statusSel">
             ${['todo', 'in_progress', 'done'].map((s) => `<option value="${s}" ${t.Status === s ? 'selected' : ''}>${s.replace('_', ' ')}</option>`).join('')}
           </select></div>
-          <div class="muted small">${UI.esc(t.AssignedName || 'Unassigned')} · Block ${UI.esc(t.BlockID || '-')}</div>
-          ${t.Description ? `<p class="small">${UI.esc(t.Description)}</p>` : ''}
+          <div class="kv"><span>Work</span><b>${UI.esc(workLabel(t.WorkType))}${t.WorkType === 'other' && t.OtherDetail ? ' (' + UI.esc(t.OtherDetail) + ')' : ''}</b></div>
+          <div class="kv"><span>Shift</span><b>${UI.esc(t.Shift || '-')}</b></div>
+          <div class="kv"><span>Duration</span><b>${t.DurationHrs ? UI.esc(t.DurationHrs) + ' h' : '-'}</b></div>
+          <div class="kv"><span>Assigned</span><b>${names || 'Unassigned'}</b></div>
+          <div class="kv"><span>Block</span><b>${UI.esc(t.BlockID || '-')}</b></div>
+          ${canMeta ? `<button class="btn sec" id="editBtn" style="margin-top:10px">Edit details</button>` : ''}
         </div>
         ${phaseHtml('before')}${phaseHtml('during')}${phaseHtml('after')}`;
       document.getElementById('view').innerHTML = html;
@@ -389,6 +475,8 @@ const Views = {
         await API.call('tasks.update', { taskId: id, status: e.target.value }, { queue: true });
         UI.toast('Status updated', 'ok');
       };
+      const eb = document.getElementById('editBtn');
+      if (eb) eb.onclick = () => openTaskModal(labour, t);
       document.querySelectorAll('.addPhoto').forEach((b) => b.onclick = async () => {
         const phase = b.dataset.phase;
         try {
@@ -571,7 +659,10 @@ const Views = {
 
         <div class="section-title">Plants &amp; layout</div>
         <div class="card">
-          ${plants.map((p) => `<div class="kv"><span><b>${UI.esc(p.Name)}</b>${p.LayoutGeoJSON ? ' · layout ✓' : ''}</span><span class="muted small">${UI.esc(p.Lat || '-')},${UI.esc(p.Lng || '-')}</span></div>`).join('')}
+          ${plants.length ? plants.map((p) => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line)">
+            <div><b>${UI.esc(p.Name)}</b>${p.LayoutGeoJSON ? ' · layout ✓' : ''}<div class="muted small">${UI.esc(p.Lat || '-')}, ${UI.esc(p.Lng || '-')}</div></div>
+            ${p.LayoutGeoJSON ? `<button class="btn sec" style="width:auto;margin:0" data-blocks="${UI.esc(p.PlantID)}">Rename blocks</button>` : ''}
+          </div>`).join('') : '<div class="empty">No plants yet</div>'}
         </div>
         <button class="btn sec" id="addPlant">+ Add plant / import layout</button>
 
@@ -634,6 +725,10 @@ const Views = {
           } }]
         });
       };
+      document.querySelectorAll('[data-blocks]').forEach((b) => b.onclick = () => {
+        const pl = plants.find((x) => x.PlantID === b.dataset.blocks);
+        if (pl) openBlocksEditor(pl);
+      });
     }
   }
 };
