@@ -557,6 +557,7 @@ const Views = {
 
   readings: {
     html() { return `
+      <div class="row between" style="margin-bottom:8px"><h3 style="margin:0">Readings</h3><button class="btn danger" id="clearDraft" style="width:auto;margin:0;padding:8px 12px">🗑 Start fresh</button></div>
       <div class="card"><h3>Meter readings</h3>
         <label>Date</label><input id="m_date" type="date" value="${todayStr()}">
         <div class="grid2">
@@ -616,6 +617,15 @@ const Views = {
         let geo = { lat: '', lng: '' }; try { const g = await Media.getGeo(); geo = g; } catch (e) {}
         await API.call('inverter.add', { inverterId: $('i_id').value, generationKwh: $('i_gen').value, readingTime: $('i_time').value, photoURL: url, lat: geo.lat, lng: geo.lng, plantId: currentPlantId() }, { queue: true });
         localStorage.removeItem('spm_readings_draft'); UI.toast('Inverter reading saved', 'ok'); navigate('dashboard');
+      };
+      const cd = $('clearDraft');
+      if (cd) cd.onclick = () => {
+        UI.confirm('Discard this draft and start fresh? Unsaved readings will be lost.').then((ok) => {
+          if (!ok) return;
+          localStorage.removeItem('spm_readings_draft');
+          Views.readings.mount();
+          UI.toast('Draft cleared', 'ok');
+        });
       };
     }
   },
@@ -850,6 +860,12 @@ const Views = {
         <div class="card">
           <label>API URL (this device)</label><input id="s_api" value="${UI.esc(State.apiBase)}">
         </div>
+        <div class="section-title">Sync &amp; drafts</div>
+        <div class="card">
+          <div class="kv"><span>Pending photo uploads</span><b id="pendingCount">…</b></div>
+          <button class="btn danger" id="clearPending" style="margin-top:8px">Clear pending uploads</button>
+          <p class="muted small">Photos captured but not yet synced (e.g. after a reload/offline). Clear only to discard them.</p>
+        </div>
       `;
       document.getElementById('view').innerHTML = html;
 
@@ -909,6 +925,17 @@ const Views = {
         const pl = plants.find((x) => x.PlantID === b.dataset.blocks);
         if (pl) openBlocksEditor(pl);
       });
+      PhotoOutbox.all().then((items) => { const el = document.getElementById('pendingCount'); if (el) el.textContent = items.length; }).catch(() => {});
+      const cp = document.getElementById('clearPending');
+      if (cp) cp.onclick = () => {
+        UI.confirm('Discard all pending (unsynced) photos? They will NOT be uploaded.').then(async (ok) => {
+          if (!ok) return;
+          const items = await PhotoOutbox.all().catch(() => []);
+          for (const it of items) { await PhotoOutbox.remove(it._id).catch(() => {}); }
+          const el = document.getElementById('pendingCount'); if (el) el.textContent = '0';
+          UI.toast('Pending uploads cleared', 'ok');
+        });
+      };
     }
   }
 };
