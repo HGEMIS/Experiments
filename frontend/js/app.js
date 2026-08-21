@@ -657,6 +657,7 @@ const Views = {
       <div class="map-toggle">
         <button id="satBtn" class="active">Satellite</button>
         <button id="roadBtn">Roadmap</button>
+        <button id="recBtn">Center</button>
       </div>
       ${canEdit ? `<button class="btn sec" id="editBlocksBtn" style="margin-bottom:10px">✏️ Edit blocks</button>
         <div id="blockList" class="card" style="display:none"></div>` : ''}
@@ -695,6 +696,11 @@ const Views = {
       }
       renderBlocks();
       blockLayer.addTo(Live.map);
+      const recBtn = document.getElementById('recBtn');
+      if (recBtn) recBtn.onclick = () => {
+        if (blockLayer.getLayers().length) Live.map.fitBounds(blockLayer.getBounds().pad(0.15));
+        else Live.map.setView(center, plant && plant.Lat ? 16 : 5);
+      };
 
       function findLayer(name) {
         let found = null;
