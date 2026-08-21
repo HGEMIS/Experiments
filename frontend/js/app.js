@@ -55,6 +55,7 @@ function route() {
   if (State.token && PUBLIC.includes(hash)) { location.hash = '#/dashboard'; return; }
   const view = Views[hash] || Views.dashboard;
   renderView(view, hash);
+  if (State.token) startLive();
 }
 
 function renderView(view, key) {
