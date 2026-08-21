@@ -203,6 +203,25 @@ function blockPopup(name, st) {
   return '<b>' + UI.esc(name) + '</b><br>Last cleaned: ' + UI.esc(c) + '<br>Last deweeded: ' + UI.esc(w);
 }
 
+function pointInRing(pt, ring) {
+  let x = pt.lng, y = pt.lat, inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function blockOfPoint(pt, fc) {
+  if (!pt || !fc) return '';
+  for (const f of (fc.features || [])) {
+    const g = f.geometry; if (!g) continue;
+    const name = (f.properties && (f.properties.name || f.properties.Name)) || '';
+    if (g.type === 'Polygon' && pointInRing(pt, g.coordinates[0])) return name;
+    if (g.type === 'MultiPolygon') { for (const poly of g.coordinates) { if (pointInRing(pt, poly[0])) return name; } }
+  }
+  return '';
+}
+
 function loadReadingsDraft() {
   try { return JSON.parse(localStorage.getItem('spm_readings_draft') || 'null'); } catch (e) { return null; }
 }
@@ -781,8 +800,26 @@ const Views = {
   manager: {
     html() { return UI.spinner(); },
     async mount() {
+      const plant = currentPlant();
+      const fc = parseLayout(plant);
       const d = await API.call('dashboard', { plantId: currentPlantId() });
       const s = d.summary;
+      let loc = { locations: [] }, att = { attendance: [] };
+      try { loc = await API.call('location.list', { plantId: currentPlantId() }); } catch (e) {}
+      try { att = await API.call('attendance.list', { plantId: currentPlantId() }); } catch (e) {}
+      const now = Date.now();
+      const active = (loc.locations || []).map((l) => {
+        const mins = Math.floor((now - new Date(l.UpdatedAt).getTime()) / 60000);
+        const open = (att.attendance || []).find((a) => a.UserID === l.UserID && a.Status === 'open');
+        const pt = (l.Lat && l.Lng) ? { lat: parseFloat(l.Lat), lng: parseFloat(l.Lng) } : null;
+        return { name: l.UserName, mins, open: !!open, block: pt ? blockOfPoint(pt, fc) : '', lat: l.Lat, lng: l.Lng };
+      }).filter((a) => a.mins <= 30).sort((a, b) => a.mins - b.mins);
+      let activeHtml = `<div class="section-title">Who's active now</div>`;
+      activeHtml += active.length ? active.map((a) => {
+        const col = a.mins <= 15 ? '#1e9e6a' : (a.mins <= 30 ? '#e08e0b' : '#c0392b');
+        return `<div class="card"><div class="row between"><b>${UI.esc(a.name)}</b><span class="pill" style="background:${col};color:#fff">${a.mins}m ago</span></div>
+          <div class="muted small">${a.open ? '✓ checked in' : 'not checked in'}${a.block ? ' · ' + UI.esc(a.block) : ''}${(a.lat && a.lng) ? ' · ' + parseFloat(a.lat).toFixed(4) + ',' + parseFloat(a.lng).toFixed(4) : ''}</div></div>`;
+      }).join('') : '<div class="empty">No engineers currently sharing location.</div>';
       const html = `
         <div class="card">
           <h3>Operations overview</h3>
@@ -794,6 +831,7 @@ const Views = {
           </div>
           <button class="btn sec" id="mapBtn" style="margin-top:12px">View site map</button>
         </div>
+        ${activeHtml}
         <div class="section-title">Attendance today</div>
         ${s.attendance.length ? s.attendance.map((a) => `<div class="card"><span class="pill ${a.Status}">${a.Status}</span> <b>${UI.esc(a.UserName)}</b>
           <div class="muted small">In ${new Date(a.CheckInTime).toLocaleTimeString()}${a.CheckOutTime ? ' · Out ' + new Date(a.CheckOutTime).toLocaleTimeString() : ''}</div></div>`).join('') : '<div class="empty">None</div>'}
