@@ -91,6 +91,19 @@ frontend/  PWA (host on GitHub Pages / Netlify)
 SETUP.md   this guide
 ```
 
+## Drawing blocks / zones on the map (recommended)
+The plant layout is **not** a fixed grid — blocks are irregular. So instead of importing a GeoJSON, an admin/manager can **draw the blocks straight onto the satellite map**:
+1. Open the **Map** and tap **✏️ Edit blocks** (admins/managers only).
+2. Use the Geoman toolbar (top-left): draw a **Polygon** or **Rectangle** for each block/zone. You'll be asked to name it (e.g. `A1`, `A7`, `Zone-North`).
+3. After drawing, you can **drag** blocks to reposition, **edit vertices** to reshape, or use the **Blocks / zones** list to **Rename** / **Delete** any block.
+4. Tap **Done editing** — the layout auto-saves to the plant.
+
+Blocks are saved as GeoJSON in the plant record, so they persist and line up on the satellite imagery.
+
+**Linking tasks to blocks:** when creating a task (Panel Cleaning, Deweeding, Other), pick the **Blocks / zones** the work covers. Completed tasks feed the per-block history shown when you tap a block on the map: **last cleaned**, **last deweeded**, and **days since** each (colour-coded: green <7d, amber <14d, red >14d). This is how you track *when which panels were cleaned / what area was deweeded*.
+
+(You can still import a coordinate-accurate GeoJSON via Settings → Plants if your CAD/survey export has real lat/lng; the rename tool there also lets you fix a mislabeled block such as A8 → A7.)
+
 ## Feature notes
 - **Task work types.** When creating/editing a labour task you pick the work: **Panel Cleaning**, **Deweeding**, or **Other** (with a free-text "specify" field). You also choose **who is doing it** (multiple labours can be assigned), the **shift** (Morning/Evening) and **duration in hours**. The shift auto-defaults to **Evening for Panel Cleaning** and **Morning for Deweeding**, and duration defaults to **3 hours** — matching your typical operation (deweed in the morning, clean panels in the evening, ~3 h shifts). Change any of these per task.
 - **Fixing block names (e.g. A7 shown as A8).** After importing the plant layout GeoJSON (Settings → Plants → import), open **Settings → Plants → "Rename blocks"** for that plant. It lists every block from the layout with an editable name field — rename the mislabeled block (A8 → A7), Save, and the corrected names are used on the map and in task/block references. You can also re-import an updated GeoJSON anytime.

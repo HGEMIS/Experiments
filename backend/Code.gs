@@ -305,6 +305,7 @@ function actionTaskAdd(body, s) {
     DurationHrs: body.durationHrs || '',
     Status: body.status || 'todo',
     BlockID: body.blockId || '',
+    Blocks: Array.isArray(body.blocks) ? body.blocks.join(',') : (body.blockId || ''),
     DueDate: body.dueDate || '',
     CreatedAt: new Date().toISOString(),
     CreatedBy: s.userId
@@ -314,7 +315,7 @@ function actionTaskAdd(body, s) {
 }
 function actionTaskUpdate(body, s) {
   var upd = {};
-  ['Title', 'Description', 'WorkType', 'OtherDetail', 'Shift', 'DurationHrs', 'Status', 'BlockID', 'DueDate'].forEach(function (k) {
+  ['Title', 'Description', 'WorkType', 'OtherDetail', 'Shift', 'DurationHrs', 'Status', 'BlockID', 'Blocks', 'DueDate'].forEach(function (k) {
     var ck = k.charAt(0).toLowerCase() + k.slice(1);
     if (body[ck] !== undefined) upd[k] = body[ck];
   });

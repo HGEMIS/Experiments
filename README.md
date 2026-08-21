@@ -7,7 +7,8 @@ A free, smartphone-first management app for solar plants, built on **Google Shee
 - **Periodic location check-ins** at a configurable interval to verify site presence.
 - **Live engineer location** shown on the site map while the app is open.
 - **Labour task management** with before / during / after progress photos (counts configurable). Each task has a **work type** (Panel Cleaning / Deweeding / Other + specify), **multiple assigned labours**, **shift** (auto Morning for deweeding, Evening for cleaning) and **duration** (default 3 h).
-- **Editable block layout**: import the plant's GeoJSON (blocks/panels) and **rename blocks** in-app (e.g. fix a block mislabeled A8 → A7).
+- **Draw blocks/zones on the real map**: admins draw irregular block and panel-zone polygons **directly on the satellite view** (free-hand, any shape — not a symmetrical grid). Blocks are freely created, renamed, reshaped, dragged, and deleted. Custom zones can be added for deweeding tracking.
+- **Task ↔ block linking + history**: when an engineer logs Panel Cleaning / Deweeding they select the exact block(s)/zone(s) covered. Each block shows its **last-cleaned / last-deweeded date and "days since"**, colour-coded (green <7d, amber <14d, red >14d) so you can see what's overdue at a glance.
 - **Daily import/export meter readings** and **inverter generation readings**, with verification photos.
 - **Site map**: block/panel layout overlay + free **satellite view** (Leaflet + Esri imagery), no Google Maps billing.
 - **Tamper-resistant photos**: coordinates + timestamp burned into the image and a SHA-256 hash stored in the Sheet.

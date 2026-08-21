@@ -21,7 +21,7 @@ var SCHEMA = {
   Plants:          ['PlantID', 'Name', 'Lat', 'Lng', 'LayoutGeoJSON', 'CreatedAt'],
   Attendance:      ['ID', 'PlantID', 'UserID', 'UserName', 'Type', 'Date', 'CheckInTime', 'CheckInLat', 'CheckInLng', 'CheckOutTime', 'CheckOutLat', 'CheckOutLng', 'PhotoURL', 'Status', 'CreatedAt'],
   CheckIns:        ['ID', 'PlantID', 'UserID', 'UserName', 'Time', 'Lat', 'Lng', 'Accuracy'],
-  LabourTasks:     ['TaskID', 'PlantID', 'Title', 'Description', 'WorkType', 'OtherDetail', 'AssignedTo', 'AssignedName', 'Shift', 'DurationHrs', 'Status', 'BlockID', 'DueDate', 'CreatedAt', 'CreatedBy'],
+  LabourTasks:     ['TaskID', 'PlantID', 'Title', 'Description', 'WorkType', 'OtherDetail', 'AssignedTo', 'AssignedName', 'Shift', 'DurationHrs', 'Status', 'BlockID', 'Blocks', 'DueDate', 'CreatedAt', 'CreatedBy'],
   TaskPhotos:      ['ID', 'TaskID', 'Phase', 'FileID', 'URL', 'Lat', 'Lng', 'Time', 'Hash', 'UploadedBy'],
   MeterReadings:   ['ID', 'PlantID', 'Date', 'ImportKwh', 'ExportKwh', 'ReadingTime', 'PhotoURLs', 'Lat', 'Lng', 'EnteredBy', 'CreatedAt'],
   InverterReadings:['ID', 'PlantID', 'Date', 'InverterID', 'GenerationKwh', 'ReadingTime', 'PhotoURL', 'Lat', 'Lng', 'EnteredBy', 'CreatedAt'],

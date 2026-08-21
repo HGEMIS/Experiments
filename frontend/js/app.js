@@ -152,8 +152,61 @@ function workLabel(w) {
   return ({ panel_cleaning: 'Panel Cleaning', deweeding: 'Deweeding', other: 'Other' }[w]) || (w || '—');
 }
 
+function blockStr(t) {
+  const b = (t.Blocks || t.BlockID || '').split(',').filter(Boolean);
+  return b.length ? (' · ' + b.map(UI.esc).join(', ')) : '';
+}
+
+function parseLayout(plant) {
+  try {
+    const gj = JSON.parse((plant && plant.LayoutGeoJSON) || '{}');
+    if (gj.type === 'FeatureCollection') return gj;
+    if (gj.type) return { type: 'FeatureCollection', features: [gj] };
+  } catch (e) {}
+  return { type: 'FeatureCollection', features: [] };
+}
+
+function layoutBlockNames(plant) {
+  const fc = parseLayout(plant);
+  return (fc.features || []).map((f) => (f.properties && (f.properties.name || f.properties.Name)) || '').filter(Boolean);
+}
+
+// Build per-block last-cleaned / last-deweeded dates from completed tasks.
+function computeBlockStats(tasks) {
+  const map = {};
+  (tasks || []).forEach((t) => {
+    const blocks = (t.Blocks || t.BlockID || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (!blocks.length) return;
+    const date = t.CreatedAt || t.DueDate || '';
+    if (!date) return;
+    const key = (t.WorkType === 'deweeding') ? 'deweeded' : 'cleaned';
+    blocks.forEach((b) => {
+      map[b] = map[b] || { cleaned: null, deweeded: null };
+      if (!map[b][key] || new Date(date) > new Date(map[b][key])) map[b][key] = date;
+    });
+  });
+  return map;
+}
+
+function daysSince(iso) {
+  if (!iso) return null;
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return d < 0 ? 0 : d;
+}
+
+function blockPopup(name, st) {
+  st = st || {};
+  const c = st.cleaned ? (new Date(st.cleaned).toLocaleDateString() + ' · ' + daysSince(st.cleaned) + 'd ago') : 'never';
+  const w = st.deweeded ? (new Date(st.deweeded).toLocaleDateString() + ' · ' + daysSince(st.deweeded) + 'd ago') : 'never';
+  return '<b>' + UI.esc(name) + '</b><br>Last cleaned: ' + UI.esc(c) + '<br>Last deweeded: ' + UI.esc(w);
+}
+
 function openTaskModal(labour, existing) {
   const t = existing || {};
+  const blockNames = layoutBlockNames(currentPlant());
+  const blockChecks = blockNames.length
+    ? blockNames.map((b) => `<label class="row" style="gap:8px;margin:4px 0"><input type="checkbox" value="${UI.esc(b)}" ${(t.Blocks && t.Blocks.split(',').indexOf(b) >= 0) ? 'checked' : ''} style="width:auto"> ${UI.esc(b)}</label>`).join('')
+    : '<span class="muted small">No blocks drawn yet — an admin can draw them on the Map.</span>';
   const html = `
     <label>Work type</label>
     <select id="t_work">
@@ -170,7 +223,8 @@ function openTaskModal(labour, existing) {
     <label>Shift</label>
     <select id="t_shift"><option value="Morning" ${t.Shift === 'Morning' ? 'selected' : ''}>Morning</option><option value="Evening" ${t.Shift === 'Evening' ? 'selected' : ''}>Evening</option></select>
     <label>Duration (hours)</label><input id="t_dur" type="number" step="0.5" min="0.5" value="${t.DurationHrs || '3'}">
-    <label>Block ID</label><input id="t_block" value="${UI.esc(t.BlockID || '')}" placeholder="A1">`;
+    <label>Blocks / zones (which areas are covered)</label>
+    <div id="t_blocks">${blockChecks}</div>`;
   UI.modal({
     title: existing ? 'Edit task' : 'New labour task',
     html,
@@ -199,7 +253,8 @@ function openTaskModal(labour, existing) {
           assignedName: checks.map((x) => x.dataset.name),
           shift: document.getElementById('t_shift').value,
           durationHrs: document.getElementById('t_dur').value || 3,
-          blockId: document.getElementById('t_block').value,
+          blocks: Array.from(document.querySelectorAll('#t_blocks input:checked')).map((x) => x.value),
+          blockId: Array.from(document.querySelectorAll('#t_blocks input:checked')).map((x) => x.value)[0] || '',
           plantId: currentPlantId()
         };
         if (existing) { payload.taskId = t.TaskID; await API.call('tasks.update', payload, { queue: true }); }
@@ -414,7 +469,7 @@ const Views = {
             ${t.Shift ? `<span class="muted small">${UI.esc(t.Shift)}</span>` : ''}
             ${t.DurationHrs ? `<span class="muted small">· ${UI.esc(t.DurationHrs)}h</span>` : ''}
           </div>
-          <div class="muted small">${names ? '👷 ' + UI.esc(names) : 'Unassigned'}${t.BlockID ? ' · Block ' + UI.esc(t.BlockID) : ''}</div>
+          <div class="muted small">${names ? '👷 ' + UI.esc(names) : 'Unassigned'}${blockStr(t)}</div>
           ${t.WorkType === 'other' && t.OtherDetail ? `<p class="small" style="margin:4px 0 0">${UI.esc(t.OtherDetail)}</p>` : ''}
           ${t.Description ? `<p class="small" style="margin:4px 0 0">${UI.esc(t.Description)}</p>` : ''}
           <button class="btn sec openTask" style="margin-top:10px" data-id="${t.TaskID}">Open</button>
@@ -465,7 +520,7 @@ const Views = {
           <div class="kv"><span>Shift</span><b>${UI.esc(t.Shift || '-')}</b></div>
           <div class="kv"><span>Duration</span><b>${t.DurationHrs ? UI.esc(t.DurationHrs) + ' h' : '-'}</b></div>
           <div class="kv"><span>Assigned</span><b>${names || 'Unassigned'}</b></div>
-          <div class="kv"><span>Block</span><b>${UI.esc(t.BlockID || '-')}</b></div>
+          <div class="kv"><span>Blocks</span><b>${UI.esc((t.Blocks || t.BlockID || '-').split(',').filter(Boolean).join(', '))}</b></div>
           ${canMeta ? `<button class="btn sec" id="editBtn" style="margin-top:10px">Edit details</button>` : ''}
         </div>
         ${phaseHtml('before')}${phaseHtml('during')}${phaseHtml('after')}`;
@@ -540,46 +595,145 @@ const Views = {
   },
 
   map: {
-    html() { return `
+    html() {
+      const canEdit = hasRole(['manager', 'admin']);
+      return `
       <div class="map-toggle">
         <button id="satBtn" class="active">Satellite</button>
         <button id="roadBtn">Roadmap</button>
       </div>
+      ${canEdit ? `<button class="btn sec" id="editBlocksBtn" style="margin-bottom:10px">✏️ Edit blocks</button>
+        <div id="blockList" class="card" style="display:none"></div>` : ''}
       <div id="map"></div>
-      <p class="muted small center" id="mapNote">Loading live locations…</p>`; },
-    mount() {
+      <p class="muted small center" id="mapNote">Loading…</p>`;
+    },
+    async mount() {
       const plant = currentPlant();
+      const canEdit = hasRole(['manager', 'admin']);
       const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Esri' });
       const road = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: 'OSM' });
       const center = plant && plant.Lat ? [parseFloat(plant.Lat), parseFloat(plant.Lng)] : [20.5937, 78.9629];
       Live.map = L.map('map', { layers: [sat], zoomControl: true }).setView(center, plant && plant.Lat ? 16 : 5);
       L.control.layers({ Satellite: sat, Roadmap: road }, null, { position: 'topright' }).addTo(Live.map);
-      if (plant && plant.LayoutGeoJSON) {
-        try { const gj = JSON.parse(plant.LayoutGeoJSON); L.geoJSON(gj, { style: { color: '#0b6e4f', weight: 2, fillColor: '#0b6e4f', fillOpacity: 0.12 } }).addTo(Live.map); } catch (e) {}
-      }
       document.getElementById('satBtn').onclick = () => { Live.map.removeLayer(road); Live.map.addLayer(sat); document.getElementById('satBtn').classList.add('active'); document.getElementById('roadBtn').classList.remove('active'); };
       document.getElementById('roadBtn').onclick = () => { Live.map.removeLayer(sat); Live.map.addLayer(road); document.getElementById('roadBtn').classList.add('active'); document.getElementById('satBtn').classList.remove('active'); };
 
-      const draw = (locs) => {
+      let layoutFC = parseLayout(plant);
+      let stats = {};
+      try { const td = await API.call('tasks.list', { plantId: currentPlantId() }); stats = computeBlockStats(td.tasks); } catch (e) {}
+
+      const blockLayer = L.featureGroup();
+      function blockColor(name) {
+        const ds = stats[name] ? daysSince(stats[name].cleaned) : null;
+        return ds == null ? '#0b6e4f' : (ds > 14 ? '#c0392b' : ds > 7 ? '#e08e0b' : '#1e9e6a');
+      }
+      function renderBlocks() {
+        blockLayer.clearLayers();
+        (layoutFC.features || []).forEach((f) => {
+          const name = (f.properties && (f.properties.name || f.properties.Name)) || '';
+          const g = L.geoJSON(f);
+          const col = blockColor(name);
+          g.setStyle({ color: col, weight: 2, fillColor: col, fillOpacity: 0.15 });
+          g.eachLayer((lyr) => { lyr.bindPopup(blockPopup(name, stats[name])); blockLayer.addLayer(lyr); });
+        });
+      }
+      renderBlocks();
+      blockLayer.addTo(Live.map);
+
+      function findLayer(name) {
+        let found = null;
+        blockLayer.eachLayer((l) => { if (l.feature && l.feature.properties && (l.feature.properties.name || l.feature.properties.Name) === name) found = l; });
+        return found;
+      }
+      function saveLayout() {
+        layoutFC = blockLayer.toGeoJSON();
+        API.call('plants.update', { plantId: currentPlantId(), layout: JSON.stringify(layoutFC) }, { queue: true })
+          .then(() => UI.toast('Layout saved', 'ok')).catch(() => UI.toast('Save failed (queued)', 'err'));
+        if (!editing) renderBlocks();
+        renderBlockList();
+      }
+      function renderBlockList() {
+        const list = document.getElementById('blockList');
+        if (!list) return;
+        const feats = layoutFC.features || [];
+        list.innerHTML = feats.length
+          ? '<div class="section-title" style="margin:0 0 6px">Blocks / zones</div>' + feats.map((f, i) => {
+              const n = (f.properties && (f.properties.name || f.properties.Name)) || ('#' + (i + 1));
+              return `<div class="row between" style="padding:4px 0"><span>${UI.esc(n)}</span><span><button class="btn sec" style="width:auto;margin:0;padding:4px 8px" data-rn="${i}">Rename</button> <button class="btn danger" style="width:auto;margin:0;padding:4px 8px" data-del="${i}">Delete</button></span></div>`;
+            }).join('')
+          : '<div class="muted small">No blocks yet. Tap “Edit blocks” then draw a polygon/rectangle.</div>';
+        list.querySelectorAll('[data-rn]').forEach((b) => b.onclick = () => {
+          const i = +b.dataset.rn; const cur = (layoutFC.features[i].properties && (layoutFC.features[i].properties.name || layoutFC.features[i].properties.Name)) || '';
+          const nv = prompt('Rename block / zone', cur); if (nv == null) return;
+          const lyr = findLayer(cur); if (lyr) { lyr.feature.properties.name = nv; lyr.bindPopup(blockPopup(nv, stats[nv])); }
+          layoutFC.features[i].properties = layoutFC.features[i].properties || {}; layoutFC.features[i].properties.name = nv;
+          saveLayout();
+        });
+        list.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => {
+          const i = +b.dataset.del; const cur = (layoutFC.features[i].properties && (layoutFC.features[i].properties.name || layoutFC.features[i].properties.Name)) || '';
+          const lyr = findLayer(cur); if (lyr) blockLayer.removeLayer(lyr);
+          layoutFC.features.splice(i, 1);
+          saveLayout();
+        });
+      }
+
+      let editing = false;
+      function onCreate(e) {
+        const lyr = e.layer;
+        const n = prompt('Block / zone name?', 'Block ' + ((layoutFC.features || []).length + 1));
+        const name = n || ('Block ' + ((layoutFC.features || []).length + 1));
+        lyr.feature = lyr.feature || {}; lyr.feature.properties = lyr.feature.properties || {};
+        lyr.feature.properties.name = name;
+        const col = blockColor(name);
+        lyr.setStyle({ color: col, weight: 2, fillColor: col, fillOpacity: 0.15 });
+        lyr.bindPopup(blockPopup(name, stats[name]));
+        blockLayer.addLayer(lyr);
+        saveLayout();
+      }
+
+      if (canEdit && Live.map.pm) {
+        const eb = document.getElementById('editBlocksBtn');
+        eb.onclick = () => {
+          editing = !editing;
+          if (editing) {
+            document.getElementById('blockList').style.display = 'block';
+            Live.map.pm.addControls({ position: 'topleft', drawMarker: false, drawCircle: false, drawCircleMarker: false, drawPolyline: false, drawRectangle: true, drawPolygon: true, drawText: false, editMode: true, dragMode: true, cutPolygon: false, removalMode: true, rotateMode: false });
+            Live.map.on('pm:create', onCreate);
+            Live.map.on('pm:update', saveLayout);
+            Live.map.on('pm:remove', saveLayout);
+            eb.textContent = 'Done editing';
+          } else {
+            Live.map.pm.removeControls();
+            Live.map.off('pm:create', onCreate);
+            Live.map.off('pm:update', saveLayout);
+            Live.map.off('pm:remove', saveLayout);
+            eb.textContent = '✏️ Edit blocks';
+            saveLayout();
+          }
+        };
+        renderBlockList();
+      } else if (canEdit) {
+        UI.toast('Map editor needs internet on first load', 'err');
+      }
+
+      const drawLocs = (locs) => {
         Object.values(Live.markers).forEach((m) => Live.map.removeLayer(m)); Live.markers = {};
-        locs.forEach((l) => {
+        (locs || []).forEach((l) => {
           if (l.Lat && l.Lng) {
-            const m = L.circleMarker([parseFloat(l.Lat), parseFloat(l.Lng)], { radius: 8, color: '#0b6e4f', fillColor: '#1e9e6a', fillOpacity: 1 })
-              .addTo(Live.map).bindPopup(`<b>${UI.esc(l.UserName)}</b><br>${new Date(l.UpdatedAt).toLocaleTimeString()}`);
+            const m = L.circleMarker([parseFloat(l.Lat), parseFloat(l.Lng)], { radius: 8, color: '#0b6e4f', fillColor: '#1e9e6a', fillOpacity: 1 }).addTo(Live.map).bindPopup(`<b>${UI.esc(l.UserName)}</b><br>${new Date(l.UpdatedAt).toLocaleTimeString()}`);
             Live.markers[l.UserID] = m;
           }
         });
         if (Live.pos) {
-          const me = L.circleMarker([Live.pos.lat, Live.pos.lng], { radius: 9, color: '#c0392b', fillColor: '#e74c3c', fillOpacity: 1 })
-            .addTo(Live.map).bindPopup('You (live)');
+          const me = L.circleMarker([Live.pos.lat, Live.pos.lng], { radius: 9, color: '#c0392b', fillColor: '#e74c3c', fillOpacity: 1 }).addTo(Live.map).bindPopup('You (live)');
           Live.markers['__me'] = me;
         }
       };
       const poll = async () => {
         try {
           const d = await API.call('location.list', { plantId: currentPlantId() });
-          draw(d.locations || []);
-          document.getElementById('mapNote').textContent = (d.locations || []).length + ' engineer location(s) shown';
+          drawLocs(d.locations || []);
+          document.getElementById('mapNote').textContent = (d.locations || []).length + ' engineer location(s) · ' + ((layoutFC.features || []).length) + ' blocks';
         } catch (e) {}
       };
       poll();
